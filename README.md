@@ -1,2 +1,3 @@
 # TP1delgoat
-el TP1 pero del goat
+DIA 1 8/4
+Cree el repositorio gamer
