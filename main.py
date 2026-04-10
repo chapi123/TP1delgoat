@@ -6,7 +6,7 @@ from tkinter import font
 import os
 import random
 
-#pygame.mixer.init()
+pygame.mixer.init()
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -112,7 +112,8 @@ def open_playlist(path):
                 fg_color="#1a1a1a",
                 hover_color="#2a2a2a",
                 anchor="w",
-                command=lambda p=full_path: play_selected(p)
+                command=lambda p=full_path: play_selected(p),
+                font=("Montserrat", 12)
             )
             btn.pack(fill="x", padx=10, pady=3)
     
@@ -141,20 +142,21 @@ def clear_right_panel():
 
 def toggle_play():
     global playing
-    
-    if not playlist :
-        return   
 
-    playing = not playing
+    if not playlist:
+        return   
 
     if playing:
         pygame.mixer.music.pause()
-        btn_play.configure(image=pause_icon)
-        playing = False
-
-    else:
-        pygame.mixer.music.unpause()
         btn_play.configure(image=play_icon)
+        playing = False
+    else:
+        if pygame.mixer.music.get_busy():
+            pygame.mixer.music.unpause()
+        else:
+            pygame.mixer.music.unpause()
+
+        btn_play.configure(image=pause_icon)
         playing = True
 
 def toggle_shuffle():
@@ -272,7 +274,8 @@ btn_foward = ctk.CTkButton(
     height=40,
     fg_color="#181818",      
     hover_color="#181818",   
-    border_width=0               
+    border_width=0,  
+    command=next_song            
 )
 btn_foward.pack(side="left", padx= 10, pady=15)
 
