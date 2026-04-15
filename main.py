@@ -6,6 +6,7 @@ from tkinter import font
 import os
 import random
 from mutagen.mp3 import MP3
+import yt_dlp
 
 pygame.mixer.init()
 
@@ -13,7 +14,7 @@ ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
 root = ctk.CTk()
-root.title("spotify prime")
+root.title("chapify")
 root.configure(fg_color="#121212")
 
 root.iconbitmap("assets/icon.ico")
@@ -35,8 +36,6 @@ separator.pack(side="left", fill="y")
 right_panel = ctk.CTkFrame(main, fg_color="#121212")
 right_panel.pack(side="left", fill="both", expand=True)
 
-title_current = ctk.CTkLabel(right_panel, text="Current Playlist", font=("Montserrat", 20), text_color="#FFFFFF")
-title_current.pack(pady=10)
 
 player = ctk.CTkFrame(root, height=100, fg_color="#181818")
 player.pack(side="bottom", fill="x")
@@ -52,6 +51,18 @@ right_controls = ctk.CTkFrame(controls, fg_color="#181818")
 right_controls.pack(side="right", padx=10)
 progress_frame = ctk.CTkFrame(player, fg_color="#181818",height=20)
 progress_frame.pack(side="bottom", fill="x", padx=80, pady=(0, 8))
+header = ctk.CTkFrame(right_panel, height=60, fg_color="#121212")
+header.pack(fill="x")
+header.pack_propagate(False)
+search_frame = ctk.CTkFrame(header, fg_color="#1e1e1e", corner_radius=20)
+search_frame.pack(pady=(10,0), padx=20, fill="x")
+right_container = ctk.CTkFrame(right_panel, fg_color="#121212")
+right_container.pack(fill="both", expand=True)
+title_current = ctk.CTkLabel(right_container, text="Current Playlist", font=("Montserrat", 20), text_color="#FFFFFF")
+title_current.pack()
+scroll = ctk.CTkScrollableFrame(right_panel, fg_color="#121212")
+scroll.pack(fill="both", expand=True)
+right_container = scroll
 
 play_img = Image.open("assets/play.png").resize((25, 25))
 pause_img = Image.open("assets/pause.png").resize((25, 25))
@@ -66,6 +77,7 @@ loop2_img = Image.open("assets/loop2.png").resize((25, 32))
 volume1_img = Image.open("assets/volume1.png").resize((25, 25))
 volume2_img = Image.open("assets/volume2.png").resize((25, 25))
 volume3_img = Image.open("assets/volume3.png").resize((25, 25))
+search_img = Image.open("assets/search.png").resize((20, 20))
 
 play_icon = ImageTk.PhotoImage(play_img)
 pause_icon = ImageTk.PhotoImage(pause_img)
@@ -80,6 +92,7 @@ loop2_icon = ImageTk.PhotoImage(loop2_img)
 volume1_icon = ImageTk.PhotoImage(volume1_img)
 volume2_icon = ImageTk.PhotoImage(volume2_img)
 volume3_icon = ImageTk.PhotoImage(volume3_img)
+search_icon = ImageTk.PhotoImage(search_img)
 
 playing = False
 shuffle = False
@@ -90,6 +103,37 @@ history = []
 last_value = 30
 dragging = False
 start_offset = 0
+song_ended= False
+shuffle_queue = []
+shuffle_index = 0
+
+def get_audio_from_youtube(query):
+    search = query + " official audio"
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'noplaylist': True,
+        'quiet': True,
+        'outtmpl': 'temp.%(ext)s'
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(f"ytsearch:{search}", download=True)
+        file_path = ydl.prepare_filename(info['entries'][0])
+
+    return file_path
+
+def play_from_search(query):
+    global playing, current_song, playlist
+
+    file_path = get_audio_from_youtube(query)
+
+    pygame.mixer.music.stop()
+    pygame.mixer.music.load(file_path)
+    pygame.mixer.music.play()
+
+    playing = True
+    btn_play.configure(image=pause_icon)
 
 def load_playlist () :
     global folder
@@ -118,7 +162,7 @@ def open_playlist(path):
     
     clear_right_panel()
     
-    title_songs = ctk.CTkLabel(right_panel, text=folder, font=("Montserrat", 18), text_color="#FFFFFF")
+    title_songs = ctk.CTkLabel(right_container, text=folder, font=("Montserrat", 18), text_color="#FFFFFF")
     title_songs.pack(pady=10)
 
     playlist = []
@@ -130,7 +174,7 @@ def open_playlist(path):
             playlist.append(full_path)
             
             btn = ctk.CTkButton(
-                right_panel,
+                right_container,
                 text=file,
                 fg_color="#1a1a1a",
                 hover_color="#2a2a2a",
@@ -175,12 +219,14 @@ def format_time(seconds):
     return f"{minutes}:{seconds:02}"
 
 def update_progress():
+    global song_ended
+
     if playlist and current_song < len(playlist) and playing:
 
         current_time = get_current_time()
+        duration = get_duration(playlist[current_song])
 
-        if current_time >= 0 and not dragging: 
-            duration = get_duration(playlist[current_song])
+        if current_time >= 0 and not dragging:
             current_text = format_time(current_time)
             duration_text = format_time(duration)
 
@@ -189,10 +235,22 @@ def update_progress():
                 progress.set(value)
                 time_label.configure(text=f"{current_text} / {duration_text}")
 
+        if current_time >= duration - 1 and not song_ended:
+            song_ended = True
+
+            if loop:
+                play_selected(playlist[current_song])
+            else:
+                next_song()
+
+        if current_time < 1:
+            song_ended = False
+
     root.after(500, update_progress)
 
+
 def seek_song (value) :
-    global playing
+    global playing, start_offset
 
     if not playlist:
         return
@@ -214,8 +272,25 @@ def set_dragging(state):
     global dragging
     dragging = state
 
+def on_seek_release(event):
+    global dragging
+    dragging = False
+    seek_song(progress.get())
+
+def show_preview(value):
+    if not playlist:
+        return
+    
+    duration = get_duration(playlist[current_song])
+    new_time = (float(value) / 100) * duration
+
+    current_text = format_time(new_time)
+    duration_text = format_time(duration)
+
+    time_label.configure(text=f"{current_text} / {duration_text}")
+
 def clear_right_panel():
-    for widget in right_panel.winfo_children():
+    for widget in right_container.winfo_children():
         widget.destroy()
 
 def toggle_play():
@@ -232,18 +307,30 @@ def toggle_play():
         if pygame.mixer.music.get_busy():
             pygame.mixer.music.unpause()
         else:
-            pygame.mixer.music.unpause()
+            pygame.mixer.music.play(start=start_offset)
 
         btn_play.configure(image=pause_icon)
         playing = True
 
+def generate_shuffle_queue():
+    global shuffle_queue, shuffle_index
+
+    shuffle_queue = list(range(len(playlist)))
+    random.shuffle(shuffle_queue)
+
+    if current_song in shuffle_queue:
+        shuffle_queue.remove(current_song)
+
+    shuffle_index = 0
+
 def toggle_shuffle():
     global shuffle
-    
+
     shuffle = not shuffle
-    
+
     if shuffle:
         btn_shuffle.configure(image=shuffle2_icon)
+        generate_shuffle_queue()
     else:
         btn_shuffle.configure(image=shuffle1_icon)
 
@@ -258,9 +345,22 @@ def toggle_loop():
         btn_loop.configure(image=loop1_icon)
 
 def stop() :
-    global playing
+    global playing, start_offset, song_ended
+
+    if not playlist:
+        return
 
     pygame.mixer.music.stop()
+    pygame.mixer.music.load(playlist[current_song])
+
+    start_offset = 0
+    song_ended = False
+
+    progress.set(0)
+
+    duration = get_duration(playlist[current_song])
+    time_label.configure(text=f"0:00 / {format_time(duration)}")
+
     btn_play.configure(image=play_icon)
     playing = False
 
@@ -291,36 +391,43 @@ def update_volume(value):
         btn_volume.configure(image=volume3_icon)
 
 def next_song():
-    global current_song, start_offset
+    global current_song, start_offset, shuffle_index
+
     start_offset = 0
-    
+
     if not playlist:
         return
-    
+
+    history.append(current_song)
+
     if shuffle:
-        import random
-        new_index = random.randint(0, len(playlist) - 1)
+        if not shuffle_queue or shuffle_index >= len(shuffle_queue):
+            generate_shuffle_queue()
+
+        new_index = shuffle_queue[shuffle_index]
+        shuffle_index += 1
     else:
         new_index = (current_song + 1) % len(playlist)
-    
-    play_selected(playlist[new_index])  
+
+    play_selected(playlist[new_index])
 
 def prev_song():
     global current_song, playing, start_offset
+
     start_offset = 0
-    
-    if not history:
-        pygame.mixer.music.stop()
-        btn_play.configure(image=play_icon)
-        playing = False
+
+    if not playlist:
         return
-    
-    current_song = history.pop()
-    
+
+    if history:
+        current_song = history.pop()
+    else:
+        current_song = (current_song - 1) % len(playlist)
+
     pygame.mixer.music.stop()
     pygame.mixer.music.load(playlist[current_song])
     pygame.mixer.music.play()
-    
+
     btn_play.configure(image=pause_icon)
     playing = True
 
@@ -337,12 +444,12 @@ progress = ctk.CTkSlider(
     progress_color="#1DB954",
     button_color="#FFFFFF",
     button_hover_color="#cccccc",
-    command=lambda value: seek_song(value),
+    command=show_preview
 )
 progress.pack(side="left", fill="x", expand=True)
 progress.set(0)
 progress.bind("<Button-1>", lambda e: set_dragging(True))
-progress.bind("<ButtonRelease-1>", lambda e: set_dragging(False))
+progress.bind("<ButtonRelease-1>", on_seek_release)
 
 time_label = ctk.CTkLabel(
     progress_frame,
@@ -456,6 +563,27 @@ btn_loop = ctk.CTkButton(
     command=toggle_loop           
 )
 btn_loop.pack(side="left", padx= 10, pady=5)
+
+search_entry = ctk.CTkEntry(
+    search_frame,
+    placeholder_text="¿Qué querés escuchar?",
+    border_width=0,
+    fg_color="#1e1e1e",
+    text_color="#FFFFFF"
+)
+search_entry.pack(side="left", fill="x", expand=True, padx=10)
+
+search_btn = ctk.CTkButton(
+    search_frame,
+    text="",
+    image=search_icon,
+    width=30,
+    fg_color="#1e1e1e",
+    hover_color="#2a2a2a",
+    command=lambda: play_from_search(search_entry.get())
+)
+search_btn.pack(side="right", padx=10)
+search_entry.bind("<Return>", lambda e: play_from_search(search_entry.get()))
 
 update_progress()
 load_playlist()
