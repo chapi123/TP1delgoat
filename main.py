@@ -7,6 +7,8 @@ import random
 from mutagen.mp3 import MP3
 import yt_dlp
 import vlc
+from script.search import search_youtube
+from script.downloader import get_audio_url
 
 instance = vlc.Instance()
 media_player = instance.media_player_new()
@@ -133,16 +135,45 @@ def get_audio_from_youtube(query):
 
     return file_path
 
-def play_from_search(query):
+def play_from_url(url, title):
     global playing, current_song, playlist
-    file_path = get_audio_from_youtube(query)
 
-    media = instance.media_new(file_path)
+    stream_url = get_audio_url(url)    
+    media = instance.media_new(stream_url)
     media_player.set_media(media)
     media_player.play()
 
     playing = True
     btn_play.configure(image=pause_icon)
+    progress.set(0)
+
+def play_from_search(query):
+    if not query.strip():
+        return
+
+    results = search_youtube(query)  
+
+    clear_right_panel()
+
+    title_results = ctk.CTkLabel(
+        right_container,
+        text=f'Results: "{query}"',
+        font=("Montserrat", 18),
+        text_color="#FFFFFF"
+    )
+    title_results.pack(pady=10)
+
+    for song in results:
+        btn = ctk.CTkButton(
+            right_container,
+            text=song["title"],
+            fg_color="#1a1a1a",
+            hover_color="#2a2a2a",
+            anchor="w",
+            font=("Montserrat", 12),
+            command=lambda s=song: play_from_url(s["url"], s["title"])
+        )
+        btn.pack(fill="x", padx=10, pady=3)
 
 def load_playlist () :
     global folder
