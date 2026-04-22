@@ -186,7 +186,7 @@ def show_create_playlist_modal():
 
     btn = ctk.CTkButton(
         modal,
-        text="Crear",
+        text="Create",
         command=create,
         fg_color="#1DB954",
         hover_color="#1ed760"
@@ -554,6 +554,14 @@ def load_playlist():
                 command=lambda p=full_path, f=folder: rename_playlist(p, f)
             )
             edit_btn.pack(side="left", padx=(4,2))
+            def on_enter_edit(e):
+                edit_btn.configure(image=edit2_icon)
+
+            def on_leave_edit(e):   
+                edit_btn.configure(image=edit1_icon)
+            edit_btn.bind("<Enter>", on_enter_edit)
+            edit_btn.bind("<Leave>", on_leave_edit)
+            
 
             delete_btn = ctk.CTkButton(
                 row,
@@ -565,6 +573,13 @@ def load_playlist():
                 command=lambda p=full_path: delete_playlist(p)
             )
             delete_btn.pack(side="left", padx=2)
+            def on_enter_delete(e):
+                delete_btn.configure(image=trash2_icon)
+
+            def on_leave_delete(e):   
+                delete_btn.configure(image=trash1_icon)
+            delete_btn.bind("<Enter>", on_enter_delete)
+            delete_btn.bind("<Leave>", on_leave_delete)
 
 def open_playlist(path):
     global playlist, current_song, folder
@@ -623,6 +638,13 @@ def open_playlist(path):
                 command=lambda p=full_path, pl=path: delete_song(p, pl)
             )
             delete_btn.pack(side="left", padx=2)
+            def on_enter_delete(e):
+                delete_btn.configure(image=trash2_icon)
+
+            def on_leave_delete(e):   
+                delete_btn.configure(image=trash1_icon)
+            delete_btn.bind("<Enter>", on_enter_delete)
+            delete_btn.bind("<Leave>", on_leave_delete)
 
 def delete_song(song_path, playlist_path):
     overlay.lift()
@@ -958,10 +980,10 @@ def prev_song():
     btn_play.configure(image=pause_icon)
     playing = True
 
-def on_enter(e):
+def on_enter_stop(e):
     btn_stop.configure(image=stop2_icon)
 
-def on_leave(e):
+def on_leave_stop(e):
     btn_stop.configure(image=stop1_icon)
 
 progress = ctk.CTkSlider(
@@ -1076,8 +1098,8 @@ btn_stop = ctk.CTkButton(
     command=stop         
 )
 btn_stop.pack(side="left", padx= 10, pady=5)
-btn_stop.bind("<Enter>", on_enter)
-btn_stop.bind("<Leave>", on_leave)
+btn_stop.bind("<Enter>", on_enter_stop)
+btn_stop.bind("<Leave>", on_leave_stop)
 
 btn_loop = ctk.CTkButton(
     center_controls,
