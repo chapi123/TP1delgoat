@@ -1,5 +1,6 @@
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+from script.utils import clean_title, parse_artist_title
 
 CLIENT_ID = "c0e508362f62467680c103d7e91464c3"
 CLIENT_SECRET = "c7bbd17298c74d72a592ad89a81ed568"
@@ -11,9 +12,16 @@ auth_manager = SpotifyClientCredentials(
 
 sp = spotipy.Spotify(auth_manager=auth_manager)
 
-
 def get_spotify_metadata(query):
-    results = sp.search(q=query, limit=1, type='track')
+    cleaned = clean_title(query)
+    artist, song = parse_artist_title(cleaned)
+
+    if artist and song:
+        search_query = f"track:{song} artist:{artist}"
+    else:
+        search_query = cleaned
+
+    results = sp.search(q=search_query, limit=1, type='track')
 
     if not results['tracks']['items']:
         return None
