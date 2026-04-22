@@ -89,6 +89,8 @@ modal.place(relx=0.5, rely=0.5, anchor="center")
 modal.pack_propagate(False)
 overlay.bind("<Button-1>", lambda e: hide_modal())
 modal.bind("<Button-1>", lambda e: "break")
+root.bind("<Escape>", lambda e: hide_modal())
+
 
 play_img = Image.open("assets/play.png").resize((25, 25))
 pause_img = Image.open("assets/pause.png").resize((25, 25))
@@ -105,7 +107,11 @@ volume2_img = Image.open("assets/volume2.png").resize((25, 25))
 volume3_img = Image.open("assets/volume3.png").resize((25, 25))
 search_img = Image.open("assets/search.png").resize((20, 20))
 download_img = Image.open("assets/download.png").resize((30, 30))
-
+trash1_img = Image.open("assets/trash1.png").resize((12,12))
+trash2_img = Image.open("assets/trash2.png").resize((12,12))
+edit1_img = Image.open("assets/edit1.png").resize((12,12))
+edit2_img = Image.open("assets/edit2.png").resize((12,12))
+                                                        
 play_icon = ImageTk.PhotoImage(play_img)
 pause_icon = ImageTk.PhotoImage(pause_img)
 backward_icon = ImageTk.PhotoImage(backward_img)
@@ -121,6 +127,10 @@ volume2_icon = ImageTk.PhotoImage(volume2_img)
 volume3_icon = ImageTk.PhotoImage(volume3_img)
 search_icon = ImageTk.PhotoImage(search_img)
 download_icon = ImageTk.PhotoImage(download_img)
+trash1_icon = ImageTk.PhotoImage(trash1_img)
+trash2_icon = ImageTk.PhotoImage(trash2_img)
+edit1_icon = ImageTk.PhotoImage(edit1_img)
+edit2_icon = ImageTk.PhotoImage(edit2_img)
 
 playing = False
 shuffle = False
@@ -136,6 +146,180 @@ shuffle_index = 0
 seeking = False
 is_stream = False
 current_url = None
+
+def show_create_playlist_modal():
+    overlay.lift()
+
+    for widget in modal.winfo_children():
+        widget.destroy()
+
+    title = ctk.CTkLabel(
+        modal,
+        text="New Playlist",
+        text_color="#FFFFFF",
+        font=("Montserrat", 18)
+    )
+    title.pack(pady=20)
+
+    name_var = tk.StringVar()
+
+    entry = ctk.CTkEntry(
+        modal,
+        placeholder_text="Playlist's name",
+        textvariable=name_var,
+        corner_radius=12
+    )
+    entry.pack(fill="x", padx=20, pady=10)
+
+    def create():
+        name = name_var.get().strip()
+        if not name:
+            return
+
+        path = os.path.join("playlists", name)
+
+        if not os.path.exists(path):
+            os.makedirs(path)
+            load_playlist()
+
+        hide_modal()
+
+    btn = ctk.CTkButton(
+        modal,
+        text="Crear",
+        command=create,
+        fg_color="#1DB954",
+        hover_color="#1ed760"
+    )
+    btn.pack(pady=20)
+
+    
+btn_add_playlist = ctk.CTkButton(
+    left_panel,
+    text="+ New Playlist",
+    fg_color="#1DB954",
+    hover_color="#1ed760",
+    command=show_create_playlist_modal
+)
+btn_add_playlist.pack(pady=10, padx=10, fill="x")
+
+def delete_playlist(path):
+    overlay.lift()
+
+    for widget in modal.winfo_children():
+        widget.destroy()
+
+    name = os.path.basename(path)
+
+    label = ctk.CTkLabel(
+        modal,
+        text=f"Delete '{name}'?",
+        text_color="#FFFFFF",
+        font=("Montserrat", 18)
+    )
+    label.pack(pady=30)
+
+    sub = ctk.CTkLabel(
+        modal,
+        text="This action cannot be undone",
+        text_color="#aaaaaa",
+        font=("Montserrat", 12)
+    )
+    sub.pack(pady=(0, 20))
+
+    def confirm_delete():
+        try:
+            for file in os.listdir(path):
+                os.remove(os.path.join(path, file))
+            os.rmdir(path)
+            load_playlist()
+        except Exception as e:
+            print("Error deleting:", e)
+
+        hide_modal()
+
+    btn_frame = ctk.CTkFrame(modal, fg_color="#181818")
+    btn_frame.pack(pady=20)
+
+    btn_cancel = ctk.CTkButton(
+        btn_frame,
+        text="Cancel",
+        command=hide_modal,
+        fg_color="#2a2a2a",
+        hover_color="#3a3a3a"
+    )
+    btn_cancel.pack(side="left", padx=10)
+
+    btn_delete = ctk.CTkButton(
+        btn_frame,
+        text="Delete",
+        command=confirm_delete,
+        fg_color="#ff4444",
+        hover_color="#ff6666"
+    )
+    btn_delete.pack(side="left", padx=10)
+
+def rename_playlist(path, old_name):
+    overlay.lift()
+
+    for widget in modal.winfo_children():
+        widget.destroy()
+
+    name_var = tk.StringVar(value=old_name)
+
+    label = ctk.CTkLabel(
+        modal, 
+        text="Edit Playlist",
+        text_color="#FFFFFF",
+        font=("Montserrat", 18)
+        )
+    label.pack(pady=20)
+
+    entry = ctk.CTkEntry(modal, textvariable=name_var, font=("Montserrat", 12))
+    entry.pack(padx=20, pady=10)
+
+    def save():
+        new_name = name_var.get().strip()
+        if not new_name:
+            return
+
+        new_path = os.path.join("playlists", new_name)
+
+        try:
+            os.rename(path, new_path)
+            hide_modal()
+            load_playlist()
+        except Exception as e:
+            print("Rename error:", e)
+
+    btn = ctk.CTkButton(
+        modal,
+        text="Save", 
+        command=save,
+        fg_color="#1DB954",
+        hover_color="#1ed760",
+        font=("Montserrat", 12)
+        )
+    btn.pack(pady=20)
+
+def handle_space(event):
+    if isinstance(event.widget, (tk.Entry, ctk.CTkEntry)):
+        return
+
+    toggle_play()
+
+def get_songs_duration(path):
+    try:
+        media = instance.media_new(path)
+        media.parse()
+        duration = media.get_duration() / 1000
+
+        if duration > 0:
+            return format_time(duration)
+    except:
+        pass
+
+    return "0:00"
 
 def show_metadata(query):
     clear_metadata_frame()
@@ -183,33 +367,20 @@ def show_metadata(query):
 
     except:
         pass
-
-    btn_volume = ctk.CTkButton( 
-    metadata_frame,
-    text="",
-    image=download_icon,
-    width=5,
-    height=5,
-    fg_color="#121212",      
-    hover_color="#121212",   
-    border_width=0,     
-    command=lambda: show_download_modal(current_url, query)
-    )
-    btn_volume.pack(pady=10)
-
-def show_download_modal(song_url, song_title):
-    overlay.lift()  
-
-    for widget in modal.winfo_children():
-        widget.destroy()
-
-    search_var = tk.StringVar()
-
-    entry = ctk.CTkEntry(modal, placeholder_text="Search playlist...", textvariable=search_var)
-    entry.pack(fill="x", padx=10, pady=10)
-
-    frame_list = ctk.CTkScrollableFrame(modal, fg_color="#181818")
-    frame_list.pack(fill="both", expand=True, padx=10, pady=10)
+    
+    if is_stream:
+        btn_download = ctk.CTkButton( 
+        metadata_frame,
+        text="",
+        image=download_icon,
+        width=5,
+        height=5,
+        fg_color="#121212",      
+        hover_color="#121212",   
+        border_width=0,     
+        command=lambda: show_download_modal(current_url, query)
+        )
+        btn_download.pack(pady=10)
 
 def select_playlist(url, path):
         download_audio(url, output_path=path)
@@ -226,7 +397,16 @@ def show_download_modal(song_url, song_title):
 
     search_var = tk.StringVar()
 
-    entry = ctk.CTkEntry(modal, placeholder_text="Search playlist...", textvariable=search_var)
+    entry = ctk.CTkEntry(
+        modal,
+        placeholder_text="search playlist...", 
+        textvariable=search_var, 
+        corner_radius=12,
+        border_width=0,
+        fg_color="#1e1e1e",
+        text_color="#FFFFFF"
+        )
+    
     entry.pack(fill="x", padx=10, pady=10)
 
     frame_list = ctk.CTkScrollableFrame(modal, fg_color="#181818")
@@ -283,7 +463,9 @@ def get_audio_from_youtube(query):
     return file_path
 
 def play_from_url(url, title):
-    global playing, current_song, playlist, is_stream
+    global playing, current_song, playlist, is_stream, current_url
+
+    current_url = url
 
     playlist = []
     current_song = 0
@@ -307,6 +489,8 @@ def play_from_url(url, title):
 def play_from_search(query):
     if not query.strip():
         return
+
+    root.focus()
 
     results = search_youtube(query)  
 
@@ -332,27 +516,55 @@ def play_from_search(query):
         )
         btn.pack(fill="x", padx=10, pady=3)
 
-def load_playlist () :
-    global folder
+def load_playlist():
     playlist_path = "playlists"
-    
+
     if not os.path.exists(playlist_path):
         return
-    
-    for folder in os.listdir(playlist_path) :
-        full_path = os.path.join(playlist_path,folder)
-        
-        if os.path.isdir(full_path) :
+
+    for widget in left_panel.winfo_children():
+        if widget != title_playlists and widget != btn_add_playlist:
+            widget.destroy()
+
+    for folder in os.listdir(playlist_path):
+        full_path = os.path.join(playlist_path, folder)
+
+        if os.path.isdir(full_path):
+
+            row = ctk.CTkFrame(left_panel, fg_color="#121212")
+            row.pack(fill="x", padx=10, pady=5)
+
             btn = ctk.CTkButton(
-                left_panel,
+                row,
                 text=folder,
                 fg_color="#1a1a1a",
                 hover_color="#2a2a2a",
-                text_color="#FFFFFF",
-                font=("Montserrat", 12),
+                anchor="w",
                 command=lambda path=full_path: open_playlist(path)
             )
-            btn.pack(fill="x", padx="10", pady="5")
+            btn.pack(side="left", fill="x", expand=True)
+
+            edit_btn = ctk.CTkButton(
+                row,
+                text="",
+                image=edit1_icon,
+                width=30,
+                fg_color="#1a1a1a",
+                hover_color="#2a2a2a",
+                command=lambda p=full_path, f=folder: rename_playlist(p, f)
+            )
+            edit_btn.pack(side="left", padx=(4,2))
+
+            delete_btn = ctk.CTkButton(
+                row,
+                text="",
+                image=trash1_icon,
+                width=30,
+                fg_color="#1a1a1a",
+                hover_color="#ff4444",
+                command=lambda p=full_path: delete_playlist(p)
+            )
+            delete_btn.pack(side="left", padx=2)
 
 def open_playlist(path):
     global playlist, current_song, folder
@@ -371,20 +583,105 @@ def open_playlist(path):
     current_song = 0
     
     for file in os.listdir(path):
-        if file.endswith(".mp3"):
+        if file.endswith((".mp3", ".webm", ".m4a")):
+
             full_path = os.path.join(path, file)
             playlist.append(full_path)
-            
+
+            name = os.path.splitext(file)[0]
+            duration = get_songs_duration(full_path)
+
+            row = ctk.CTkFrame(right_container, fg_color="#121212")
+            row.pack(fill="x", padx=10, pady=3)
+
             btn = ctk.CTkButton(
-                right_container,
-                text=file,
+                row,
+                text=name,
                 fg_color="#1a1a1a",
                 hover_color="#2a2a2a",
                 anchor="w",
-                command=lambda p=full_path: play_selected(p),
-                font=("Montserrat", 12)
+                font=("Montserrat", 12),
+                command=lambda p=full_path: play_selected(p)
             )
-            btn.pack(fill="x", padx=10, pady=3)
+            btn.pack(side="left", fill="x", expand=True)
+
+            duration_label = ctk.CTkLabel(
+                row,
+                text=duration,
+                text_color="#aaaaaa",
+                font=("Montserrat", 11)
+            )
+            duration_label.pack(side="left", padx=10)
+
+            delete_btn = ctk.CTkButton(
+                row,
+                text="",
+                image=trash1_icon,
+                width=30,
+                fg_color="#1a1a1a",
+                hover_color="#ff4444",
+                command=lambda p=full_path, pl=path: delete_song(p, pl)
+            )
+            delete_btn.pack(side="left", padx=2)
+
+def delete_song(song_path, playlist_path):
+    overlay.lift()
+
+    for widget in modal.winfo_children():
+        widget.destroy()
+
+    name = os.path.basename(song_path)
+
+    label = ctk.CTkLabel(
+        modal,
+        text=f"Delete '{name}'?",
+        text_color="#FFFFFF",
+        font=("Montserrat", 18)
+    )
+    label.pack(pady=30)
+
+    sub = ctk.CTkLabel(
+        modal,
+        text="This action cannot be undone",
+        text_color="#aaaaaa",
+        font=("Montserrat", 12)
+    )
+    sub.pack(pady=(0, 20))
+
+    def confirm_delete():
+        try:
+            os.remove(song_path)
+
+            if song_path in playlist:
+                playlist.remove(song_path)
+
+            open_playlist(playlist_path)
+
+        except Exception as e:
+            print("Error deleting song:", e)
+
+        hide_modal()
+
+    btn_frame = ctk.CTkFrame(modal, fg_color="#181818")
+    btn_frame.pack(pady=20)
+
+    btn_cancel = ctk.CTkButton(
+        btn_frame,
+        text="Cancel",
+        command=hide_modal,
+        fg_color="#2a2a2a",
+        hover_color="#3a3a3a"
+    )
+    btn_cancel.pack(side="left", padx=10)
+
+    btn_delete = ctk.CTkButton(
+        btn_frame,
+        text="Delete",
+        command=confirm_delete,
+        fg_color="#ff4444",
+        hover_color="#ff6666"
+    )
+    btn_delete.pack(side="left", padx=10)
 
 def play_selected(path):
     global current_song, playing, is_stream
@@ -428,7 +725,7 @@ def format_time(seconds):
     return f"{minutes}:{seconds:02}"
 
 def update_progress():
-    global ended_handled
+    global ended_handled, current_url
 
     state = media_player.get_state()
 
@@ -454,7 +751,9 @@ def update_progress():
 
             if loop:
                 if is_stream:
-                    media_player.stop()
+                    stream_url = get_audio_url(current_url)
+                    media = instance.media_new(stream_url)
+                    media_player.set_media(media)
                     media_player.play()
                 else:
                     play_selected(playlist[current_song])
@@ -606,6 +905,13 @@ def update_volume(value):
 def next_song():
     global current_song, shuffle_index
 
+    if loop:
+        if is_stream:
+            play_from_url(current_url, "")
+        else:
+            play_selected(playlist[current_song])
+        return
+
     if is_stream:
         return 
 
@@ -629,6 +935,13 @@ def next_song():
 def prev_song():
     global current_song, playing
     
+    if loop:
+        if is_stream:
+            play_from_url(current_url, "")
+        else:
+            play_selected(playlist[current_song])
+        return
+
     if not playlist:
         return
     
@@ -736,6 +1049,7 @@ btn_play = ctk.CTkButton(
     command=toggle_play
 )
 btn_play.pack(side="left", padx= 10,pady=5)
+root.bind("<space>", handle_space)
 
 btn_foward = ctk.CTkButton(
     center_controls,
