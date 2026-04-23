@@ -1,19 +1,28 @@
 import customtkinter as ctk
 import tkinter as tk  
 from PIL import ImageTk, Image
-from tkinter import font
 import os
-import random
-from mutagen.mp3 import MP3
-import yt_dlp
 import vlc
 import requests
-import re
+import yt_dlp
 from io import BytesIO
+from state import state
 from script.search import search_youtube
+from logic.player import (
+    format_time, get_duration, get_current_time,
+    generate_shuffle_queue, next_song, prev_song
+)
+from ui.modals_ui import (
+    hide_modal, create_playlist,
+    delete_playlist, rename_playlist,
+    show_download_modal, delete_song
+)
+from ui.lyrics_ui import open_lyrics_view
 from script.downloader import get_audio_url, download_audio
 from script.spotiapi import get_spotify_metadata
-from script.utils import clean_title, parse_artist_title
+from script.utils import clean_title
+from ui.playlist_ui import open_playlist as _open_playlist
+from ui.playlist_ui import load_playlist as _load_playlist
 
 instance = vlc.Instance()
 media_player = instance.media_player_new()
@@ -87,9 +96,9 @@ overlay.lower()
 modal = ctk.CTkFrame(overlay, width=400, height=500, fg_color="#181818", corner_radius=15)
 modal.place(relx=0.5, rely=0.5, anchor="center")
 modal.pack_propagate(False)
-overlay.bind("<Button-1>", lambda e: hide_modal())
+overlay.bind("<Button-1>", lambda e: hide_modal(overlay))
 modal.bind("<Button-1>", lambda e: "break")
-root.bind("<Escape>", lambda e: hide_modal())
+root.bind("<Escape>", lambda e: hide_modal(overlay))
 
 
 play_img = Image.open("assets/play.png").resize((25, 25))
@@ -111,6 +120,8 @@ trash1_img = Image.open("assets/trash1.png").resize((12,12))
 trash2_img = Image.open("assets/trash2.png").resize((12,12))
 edit1_img = Image.open("assets/edit1.png").resize((12,12))
 edit2_img = Image.open("assets/edit2.png").resize((12,12))
+lyrics1_img = Image.open("assets/lyrics1.png").resize((25,25))
+lyrics2_img = Image.open("assets/lyrics2.png").resize((25,25))
                                                         
 play_icon = ImageTk.PhotoImage(play_img)
 pause_icon = ImageTk.PhotoImage(pause_img)
@@ -131,195 +142,44 @@ trash1_icon = ImageTk.PhotoImage(trash1_img)
 trash2_icon = ImageTk.PhotoImage(trash2_img)
 edit1_icon = ImageTk.PhotoImage(edit1_img)
 edit2_icon = ImageTk.PhotoImage(edit2_img)
+lyrics1_icon = ImageTk.PhotoImage(lyrics1_img)
+lyrics2_icon = ImageTk.PhotoImage(lyrics2_img)
 
-playing = False
-shuffle = False
-loop = False
-playlist = []
-current_song = 0
-history = []
-last_value = 30
-dragging = False
-ended_handled = False
-shuffle_queue = []
-shuffle_index = 0
-seeking = False
-is_stream = False
-current_url = None
 
-def show_create_playlist_modal():
-    overlay.lift()
+icons = {
+    "trash1": trash1_icon, "trash2": trash2_icon,
+    "edit1":  edit1_icon,  "edit2":  edit2_icon,
+}
 
-    for widget in modal.winfo_children():
-        widget.destroy()
+modals = {
+    "rename":          rename_playlist,
+    "delete_playlist": delete_playlist,
+    "delete_song":     delete_song,
+}
 
-    title = ctk.CTkLabel(
-        modal,
-        text="New Playlist",
-        text_color="#FFFFFF",
-        font=("Montserrat", 18)
-    )
-    title.pack(pady=20)
+def open_playlist(path):
+    _open_playlist(path, right_container, scroll, content_frame,
+                   state, instance, media_player, icons,
+                   play_selected, overlay, modal, modals)
 
-    name_var = tk.StringVar()
+def load_playlist_ui():
+    _load_playlist(left_panel, title_playlists, btn_add_playlist,
+                   icons, open_playlist, overlay, modal, modals)
 
-    entry = ctk.CTkEntry(
-        modal,
-        placeholder_text="Playlist's name",
-        textvariable=name_var,
-        corner_radius=12
-    )
-    entry.pack(fill="x", padx=20, pady=10)
-
-    def create():
-        name = name_var.get().strip()
-        if not name:
-            return
-
-        path = os.path.join("playlists", name)
-
-        if not os.path.exists(path):
-            os.makedirs(path)
-            load_playlist()
-
-        hide_modal()
-
-    btn = ctk.CTkButton(
-        modal,
-        text="Create",
-        command=create,
-        fg_color="#1DB954",
-        hover_color="#1ed760"
-    )
-    btn.pack(pady=20)
-
-    
 btn_add_playlist = ctk.CTkButton(
     left_panel,
     text="+ New Playlist",
     fg_color="#1DB954",
     hover_color="#1ed760",
-    command=show_create_playlist_modal
+    command=lambda: create_playlist(overlay, modal, load_playlist_ui)
 )
 btn_add_playlist.pack(pady=10, padx=10, fill="x")
-
-def delete_playlist(path):
-    overlay.lift()
-
-    for widget in modal.winfo_children():
-        widget.destroy()
-
-    name = os.path.basename(path)
-
-    label = ctk.CTkLabel(
-        modal,
-        text=f"Delete '{name}'?",
-        text_color="#FFFFFF",
-        font=("Montserrat", 18)
-    )
-    label.pack(pady=30)
-
-    sub = ctk.CTkLabel(
-        modal,
-        text="This action cannot be undone",
-        text_color="#aaaaaa",
-        font=("Montserrat", 12)
-    )
-    sub.pack(pady=(0, 20))
-
-    def confirm_delete():
-        try:
-            for file in os.listdir(path):
-                os.remove(os.path.join(path, file))
-            os.rmdir(path)
-            load_playlist()
-        except Exception as e:
-            print("Error deleting:", e)
-
-        hide_modal()
-
-    btn_frame = ctk.CTkFrame(modal, fg_color="#181818")
-    btn_frame.pack(pady=20)
-
-    btn_cancel = ctk.CTkButton(
-        btn_frame,
-        text="Cancel",
-        command=hide_modal,
-        fg_color="#2a2a2a",
-        hover_color="#3a3a3a"
-    )
-    btn_cancel.pack(side="left", padx=10)
-
-    btn_delete = ctk.CTkButton(
-        btn_frame,
-        text="Delete",
-        command=confirm_delete,
-        fg_color="#ff4444",
-        hover_color="#ff6666"
-    )
-    btn_delete.pack(side="left", padx=10)
-
-def rename_playlist(path, old_name):
-    overlay.lift()
-
-    for widget in modal.winfo_children():
-        widget.destroy()
-
-    name_var = tk.StringVar(value=old_name)
-
-    label = ctk.CTkLabel(
-        modal, 
-        text="Edit Playlist",
-        text_color="#FFFFFF",
-        font=("Montserrat", 18)
-        )
-    label.pack(pady=20)
-
-    entry = ctk.CTkEntry(modal, textvariable=name_var, font=("Montserrat", 12))
-    entry.pack(padx=20, pady=10)
-
-    def save():
-        new_name = name_var.get().strip()
-        if not new_name:
-            return
-
-        new_path = os.path.join("playlists", new_name)
-
-        try:
-            os.rename(path, new_path)
-            hide_modal()
-            load_playlist()
-        except Exception as e:
-            print("Rename error:", e)
-
-    btn = ctk.CTkButton(
-        modal,
-        text="Save", 
-        command=save,
-        fg_color="#1DB954",
-        hover_color="#1ed760",
-        font=("Montserrat", 12)
-        )
-    btn.pack(pady=20)
 
 def handle_space(event):
     if isinstance(event.widget, (tk.Entry, ctk.CTkEntry)):
         return
 
     toggle_play()
-
-def get_songs_duration(path):
-    try:
-        media = instance.media_new(path)
-        media.parse()
-        duration = media.get_duration() / 1000
-
-        if duration > 0:
-            return format_time(duration)
-    except:
-        pass
-
-    return "0:00"
 
 def show_metadata(query):
     clear_metadata_frame()
@@ -331,22 +191,22 @@ def show_metadata(query):
         label.pack(pady=20)
         return
 
-    title = ctk.CTkLabel(
+    title_label = ctk.CTkLabel(
         metadata_frame,
         text=data["title"],
         font=("Montserrat", 16, "bold"),
         text_color="#FFFFFF",
         wraplength=250
     )
-    title.pack(pady=(20, 5))
+    title_label.pack(pady=(20, 5))
 
-    artist = ctk.CTkLabel(
+    artist_label = ctk.CTkLabel(
         metadata_frame,
         text=data["artist"],
         font=("Montserrat", 12),
         text_color="#aaaaaa"
     )
-    artist.pack()
+    artist_label.pack()
 
     album = ctk.CTkLabel(
         metadata_frame,
@@ -368,7 +228,7 @@ def show_metadata(query):
     except:
         pass
     
-    if is_stream:
+    if state["is_stream"]:
         btn_download = ctk.CTkButton( 
         metadata_frame,
         text="",
@@ -378,98 +238,31 @@ def show_metadata(query):
         fg_color="#121212",      
         hover_color="#121212",   
         border_width=0,     
-        command=lambda: show_download_modal(current_url, query)
+        command=lambda: show_download_modal(overlay, modal, state["current_url"], open_playlist)
         )
         btn_download.pack(pady=10)
-
-def select_playlist(url, path):
-        download_audio(url, output_path=path)
-        hide_modal()
-
-def hide_modal():
-    overlay.lower()
-
-def show_download_modal(song_url, song_title):
-    overlay.lift()
-
-    for widget in modal.winfo_children():
-        widget.destroy()
-
-    search_var = tk.StringVar()
-
-    entry = ctk.CTkEntry(
-        modal,
-        placeholder_text="search playlist...", 
-        textvariable=search_var, 
-        corner_radius=12,
-        border_width=0,
-        fg_color="#1e1e1e",
-        text_color="#FFFFFF"
-        )
     
-    entry.pack(fill="x", padx=10, pady=10)
+    btn_lyrics = ctk.CTkButton(
+    metadata_frame,
+    text="",
+    image=lyrics2_icon,
+    fg_color="#121212",      
+    hover_color="#121212",  
+    command=lambda: open_lyrics_view(data['artist'], data['title'], content_frame, scroll, clear_right_panel)
+    )
+    btn_lyrics.pack(pady=10)
+    btn_lyrics.bind("<Enter>", lambda e, b=btn_lyrics: b.configure(image=lyrics1_icon))
+    btn_lyrics.bind("<Leave>", lambda e, b=btn_lyrics: b.configure(image=lyrics2_icon))
 
-    frame_list = ctk.CTkScrollableFrame(modal, fg_color="#181818")
-    frame_list.pack(fill="both", expand=True, padx=10, pady=10)
-
-    def load_playlists(filter_text=""):
-        for widget in frame_list.winfo_children():
-            widget.destroy()
-
-        for folder in os.listdir("playlists"):
-            full_path = os.path.join("playlists", folder)
-
-            if os.path.isdir(full_path) and filter_text.lower() in folder.lower():
-                btn = ctk.CTkButton(
-                    frame_list,
-                    text=folder,
-                    fg_color="#1a1a1a",
-                    hover_color="#2a2a2a",
-                    command=lambda p=full_path: select_playlist(song_url, p)
-                )
-                btn.pack(fill="x", pady=5)
-
-    def on_search(*args):
-        load_playlists(search_var.get())
-
-    search_var.trace_add("write", on_search)
-
-    load_playlists()
-
-def get_audio_from_youtube(query):
-
-    ydl_opts = {
-        'quiet': True,
-        'extract_flat': True,
-        'format': 'bestaudio[ext=m4a]'
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-        video = info['entries'][0]
-
-    url = f"https://www.youtube.com/watch?v={video['id']}"
-
-    ydl_opts = {
-        'format': 'bestaudio[ext=webm]/bestaudio',
-        'quiet': True,
-        'outtmpl': 'temp.%(ext)s'
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        file_path = ydl.prepare_filename(info)
-
-    return file_path
+    if state["lyrics_frame_active"] is not None and data:
+        open_lyrics_view(data['artist'], data['title'], content_frame, scroll, clear_right_panel)
 
 def play_from_url(url, title):
-    global playing, current_song, playlist, is_stream, current_url
+    state["current_url"] = url
 
-    current_url = url
-
-    playlist = []
-    current_song = 0
-    is_stream = True
+    state["playlist"] = []
+    state["current_song"] = 0
+    state["is_stream"] = True
 
     stream_url = get_audio_url(url)
     if stream_url is None:
@@ -480,7 +273,7 @@ def play_from_url(url, title):
     media_player.set_media(media)
     media_player.play()
 
-    playing = True
+    state["playing"] = True
     btn_play.configure(image=pause_icon)
     progress.set(0)
 
@@ -516,206 +309,15 @@ def play_from_search(query):
         )
         btn.pack(fill="x", padx=10, pady=3)
 
-def load_playlist():
-    playlist_path = "playlists"
-
-    if not os.path.exists(playlist_path):
-        return
-
-    for widget in left_panel.winfo_children():
-        if widget != title_playlists and widget != btn_add_playlist:
-            widget.destroy()
-
-    for folder in os.listdir(playlist_path):
-        full_path = os.path.join(playlist_path, folder)
-
-        if os.path.isdir(full_path):
-
-            row = ctk.CTkFrame(left_panel, fg_color="#121212")
-            row.pack(fill="x", padx=10, pady=5)
-
-            btn = ctk.CTkButton(
-                row,
-                text=folder,
-                fg_color="#1a1a1a",
-                hover_color="#2a2a2a",
-                anchor="w",
-                command=lambda path=full_path: open_playlist(path)
-            )
-            btn.pack(side="left", fill="x", expand=True)
-
-            edit_btn = ctk.CTkButton(
-                row,
-                text="",
-                image=edit1_icon,
-                width=30,
-                fg_color="#1a1a1a",
-                hover_color="#2a2a2a",
-                command=lambda p=full_path, f=folder: rename_playlist(p, f)
-            )
-            edit_btn.pack(side="left", padx=(4,2))
-            def on_enter_edit(e):
-                edit_btn.configure(image=edit2_icon)
-
-            def on_leave_edit(e):   
-                edit_btn.configure(image=edit1_icon)
-            edit_btn.bind("<Enter>", on_enter_edit)
-            edit_btn.bind("<Leave>", on_leave_edit)
-            
-
-            delete_btn = ctk.CTkButton(
-                row,
-                text="",
-                image=trash1_icon,
-                width=30,
-                fg_color="#1a1a1a",
-                hover_color="#ff4444",
-                command=lambda p=full_path: delete_playlist(p)
-            )
-            delete_btn.pack(side="left", padx=2)
-            def on_enter_delete(e):
-                delete_btn.configure(image=trash2_icon)
-
-            def on_leave_delete(e):   
-                delete_btn.configure(image=trash1_icon)
-            delete_btn.bind("<Enter>", on_enter_delete)
-            delete_btn.bind("<Leave>", on_leave_delete)
-
-def open_playlist(path):
-    global playlist, current_song, folder
-    
-    clear_right_panel()
-    
-    title_songs = ctk.CTkLabel(
-        right_container,
-        text=os.path.basename(path),
-        font=("Montserrat", 18),
-        text_color="#FFFFFF"
-    )
-    title_songs.pack(pady=10)
-
-    playlist = []
-    current_song = 0
-    
-    for file in os.listdir(path):
-        if file.endswith((".mp3", ".webm", ".m4a")):
-
-            full_path = os.path.join(path, file)
-            playlist.append(full_path)
-
-            name = os.path.splitext(file)[0]
-            duration = get_songs_duration(full_path)
-
-            row = ctk.CTkFrame(right_container, fg_color="#121212")
-            row.pack(fill="x", padx=10, pady=3)
-
-            btn = ctk.CTkButton(
-                row,
-                text=name,
-                fg_color="#1a1a1a",
-                hover_color="#2a2a2a",
-                anchor="w",
-                font=("Montserrat", 12),
-                command=lambda p=full_path: play_selected(p)
-            )
-            btn.pack(side="left", fill="x", expand=True)
-
-            duration_label = ctk.CTkLabel(
-                row,
-                text=duration,
-                text_color="#aaaaaa",
-                font=("Montserrat", 11)
-            )
-            duration_label.pack(side="left", padx=10)
-
-            delete_btn = ctk.CTkButton(
-                row,
-                text="",
-                image=trash1_icon,
-                width=30,
-                fg_color="#1a1a1a",
-                hover_color="#ff4444",
-                command=lambda p=full_path, pl=path: delete_song(p, pl)
-            )
-            delete_btn.pack(side="left", padx=2)
-            def on_enter_delete(e):
-                delete_btn.configure(image=trash2_icon)
-
-            def on_leave_delete(e):   
-                delete_btn.configure(image=trash1_icon)
-            delete_btn.bind("<Enter>", on_enter_delete)
-            delete_btn.bind("<Leave>", on_leave_delete)
-
-def delete_song(song_path, playlist_path):
-    overlay.lift()
-
-    for widget in modal.winfo_children():
-        widget.destroy()
-
-    name = os.path.basename(song_path)
-
-    label = ctk.CTkLabel(
-        modal,
-        text=f"Delete '{name}'?",
-        text_color="#FFFFFF",
-        font=("Montserrat", 18)
-    )
-    label.pack(pady=30)
-
-    sub = ctk.CTkLabel(
-        modal,
-        text="This action cannot be undone",
-        text_color="#aaaaaa",
-        font=("Montserrat", 12)
-    )
-    sub.pack(pady=(0, 20))
-
-    def confirm_delete():
-        try:
-            os.remove(song_path)
-
-            if song_path in playlist:
-                playlist.remove(song_path)
-
-            open_playlist(playlist_path)
-
-        except Exception as e:
-            print("Error deleting song:", e)
-
-        hide_modal()
-
-    btn_frame = ctk.CTkFrame(modal, fg_color="#181818")
-    btn_frame.pack(pady=20)
-
-    btn_cancel = ctk.CTkButton(
-        btn_frame,
-        text="Cancel",
-        command=hide_modal,
-        fg_color="#2a2a2a",
-        hover_color="#3a3a3a"
-    )
-    btn_cancel.pack(side="left", padx=10)
-
-    btn_delete = ctk.CTkButton(
-        btn_frame,
-        text="Delete",
-        command=confirm_delete,
-        fg_color="#ff4444",
-        hover_color="#ff6666"
-    )
-    btn_delete.pack(side="left", padx=10)
-
 def play_selected(path):
-    global current_song, playing, is_stream
+    state["is_stream"] = False
 
-    is_stream = False
+    new_index = state["playlist"].index(path)
 
-    new_index = playlist.index(path)
+    if state["playing"] and state["current_song"] != new_index:
+        state["history"].append(state["current_song"])
 
-    if playing and current_song != new_index:
-        history.append(current_song)
-
-    current_song = playlist.index(path)
+    state["current_song"] = state["playlist"].index(path)
 
     media = instance.media_new(path)
     media_player.set_media(media)
@@ -723,42 +325,23 @@ def play_selected(path):
 
     progress.set(0)
     btn_play.configure(image=pause_icon)
-    playing = True
+    state["playing"] = True
 
     filename = os.path.splitext(os.path.basename(path))[0]
     cleaned = clean_title(filename)
     show_metadata(cleaned)
 
-def get_duration():
-    length = media_player.get_length()  
-    if length <= 0:
-        return 0
-    return length / 1000
-
-def get_current_time():
-    ms = media_player.get_time()  
-    if ms < 0:
-        return 0
-    return (ms / 1000) 
-
-def format_time(seconds):
-    minutes = int(seconds // 60)
-    seconds = int(seconds % 60)
-    return f"{minutes}:{seconds:02}"
-
 def update_progress():
-    global ended_handled, current_url
+    vlc_state = media_player.get_state()
 
-    state = media_player.get_state()
+    if vlc_state in (vlc.State.Playing, vlc.State.Paused):
 
-    if state in (vlc.State.Playing, vlc.State.Paused):
-
-        current_time = get_current_time()
-        duration = get_duration()
+        current_time = get_current_time(media_player)
+        duration = get_duration(media_player)
 
         if duration > 0:
 
-            if not dragging:
+            if not state["dragging"]:
                 value = (current_time * 100) / duration
                 progress.set(value)
 
@@ -766,64 +349,56 @@ def update_progress():
             duration_text = format_time(duration)
             time_label.configure(text=f"{current_text} / {duration_text}")
 
-    if state == vlc.State.Ended:
+    if vlc_state == vlc.State.Ended:
 
-        if not ended_handled:
-            ended_handled = True
+        if not state["ended_handled"]:
+            state["ended_handled"] = True
 
-            if loop:
-                if is_stream:
-                    stream_url = get_audio_url(current_url)
+            if state["loop"]:
+                if state["is_stream"]:
+                    stream_url = get_audio_url(state["current_url"])
                     media = instance.media_new(stream_url)
                     media_player.set_media(media)
                     media_player.play()
                 else:
-                    play_selected(playlist[current_song])
+                    play_selected(state["playlist"][state["current_song"]])
             else:
-                if is_stream:
+                if state["is_stream"]:
                     stop()
                 else:
-                    next_song()
+                    next_song(media_player, instance, play_selected, play_from_url)
 
     else:
-        ended_handled = False
+        state["ended_handled"] = False
 
     root.after(200, update_progress)
 
 
 def seek_song(value):
-    global playing
-
-    if not playing:
+    if not state["playing"]:
         return
     
-    seeking = True
+    state["seeking"] = True
 
-    duration = get_duration()
+    duration = get_duration(media_player)
     new_time = (float(value) / 100) * duration
     media_player.set_time(int(new_time * 1000)) 
 
-    if not playing:
+    if not state["playing"]:
         media_player.pause()
 
-def reset_seeking():
-    global seeking
-    seeking = False
-
-def set_dragging(state):
-    global dragging
-    dragging = state
+def set_dragging(is_dragging):
+    state["dragging"] = is_dragging
 
 def on_seek_release(event):
-    global dragging
-    dragging = False
+    state["dragging"] = False
     seek_song(progress.get())
 
 def show_preview(value):
-    if not playing:
+    if not state["playing"]:
         return
 
-    duration = get_duration()
+    duration = get_duration(media_player)
     if duration <= 0:
         return
 
@@ -843,73 +418,52 @@ def clear_metadata_frame():
         widget.destroy()
 
 def toggle_play():
-    global playing
+    vlc_state = media_player.get_state()
 
-    state = media_player.get_state()
-
-    if state == vlc.State.Playing:
+    if vlc_state == vlc.State.Playing:
         media_player.pause()
         btn_play.configure(image=play_icon)
-        playing = False
+        state["playing"] = False
     else:
         media_player.play()
         btn_play.configure(image=pause_icon)
-        playing = True
-
-def generate_shuffle_queue():
-    global shuffle_queue, shuffle_index
-
-    shuffle_queue = list(range(len(playlist)))
-    random.shuffle(shuffle_queue)
-
-    if current_song in shuffle_queue:
-        shuffle_queue.remove(current_song)
-
-    shuffle_index = 0
+        state["playing"] = True
 
 def toggle_shuffle():
-    global shuffle
+    state["shuffle"] = not state["shuffle"]
 
-    shuffle = not shuffle
-
-    if shuffle:
+    if state["shuffle"]:
         btn_shuffle.configure(image=shuffle2_icon)
         generate_shuffle_queue()
     else:
         btn_shuffle.configure(image=shuffle1_icon)
 
 def toggle_loop():
-    global loop
+    state["loop"] = not state["loop"]
     
-    loop = not loop
-    
-    if loop:
+    if state["loop"]:
         btn_loop.configure(image=loop2_icon)
     else:
         btn_loop.configure(image=loop1_icon)
 
 def stop():
-    global playing
-
     media_player.stop()
     progress.set(0)
 
     time_label.configure(text="0:00 / 0:00")
     btn_play.configure(image=play_icon)
-    playing = False
+    state["playing"] = False
 
 def toggle_mute():
-    global last_value
-
     current_volume = media_player.audio_get_volume()
 
     if current_volume == 0:
-        media_player.audio_set_volume(int(last_value))
-        vol_level.set(last_value)
-        update_volume(last_value)
+        media_player.audio_set_volume(int(state["last_volume"]))
+        vol_level.set(state["last_volume"])
+        update_volume(state["last_volume"])
 
     else:
-        last_value = current_volume
+        state["last_volume"] = current_volume
         media_player.audio_set_volume(0)
         vol_level.set(0)
         update_volume(0)
@@ -923,68 +477,6 @@ def update_volume(value):
         btn_volume.configure(image=volume2_icon)
     else:
         btn_volume.configure(image=volume3_icon)
-
-def next_song():
-    global current_song, shuffle_index
-
-    if loop:
-        if is_stream:
-            play_from_url(current_url, "")
-        else:
-            play_selected(playlist[current_song])
-        return
-
-    if is_stream:
-        return 
-
-    if not playlist:
-        return
-
-    history.append(current_song)
-
-    if shuffle:
-        if not shuffle_queue or shuffle_index >= len(shuffle_queue):
-            generate_shuffle_queue()
-
-        new_index = shuffle_queue[shuffle_index]
-        shuffle_index += 1
-
-    else:
-        new_index = (current_song + 1) % len(playlist)
-
-    play_selected(playlist[new_index])
-
-def prev_song():
-    global current_song, playing
-    
-    if loop:
-        if is_stream:
-            play_from_url(current_url, "")
-        else:
-            play_selected(playlist[current_song])
-        return
-
-    if not playlist:
-        return
-    
-    if history:
-        current_song = history.pop()
-    
-    else:
-        current_song = (current_song - 1) % len(playlist)
-
-    media = instance.media_new(playlist[current_song])
-    media_player.set_media(media)
-    media_player.play()
-
-    btn_play.configure(image=pause_icon)
-    playing = True
-
-def on_enter_stop(e):
-    btn_stop.configure(image=stop2_icon)
-
-def on_leave_stop(e):
-    btn_stop.configure(image=stop1_icon)
 
 progress = ctk.CTkSlider(
     progress_frame,
@@ -1055,7 +547,7 @@ btn_backward = ctk.CTkButton(
     fg_color="#181818",      
     hover_color="#181818",   
     border_width=0,
-    command=prev_song            
+    command=lambda: prev_song(media_player, instance, play_selected, play_from_url)          
 )
 btn_backward.pack(side="left", padx= 10, pady=5)
 
@@ -1082,7 +574,7 @@ btn_foward = ctk.CTkButton(
     fg_color="#181818",      
     hover_color="#181818",   
     border_width=0,  
-    command=next_song            
+    command=lambda: next_song(media_player, instance, play_selected, play_from_url)          
 )
 btn_foward.pack(side="left", padx= 10, pady=5)
 
@@ -1098,8 +590,8 @@ btn_stop = ctk.CTkButton(
     command=stop         
 )
 btn_stop.pack(side="left", padx= 10, pady=5)
-btn_stop.bind("<Enter>", on_enter_stop)
-btn_stop.bind("<Leave>", on_leave_stop)
+btn_stop.bind("<Enter>", lambda e, b=btn_stop: b.configure(image=stop2_icon))
+btn_stop.bind("<Leave>", lambda e, b=btn_stop: b.configure(image=stop1_icon))
 
 btn_loop = ctk.CTkButton(
     center_controls,
@@ -1136,5 +628,5 @@ search_btn.pack(side="right", padx=10)
 search_entry.bind("<Return>", lambda e: play_from_search(search_entry.get()))
 
 update_progress()
-load_playlist()
+load_playlist_ui()
 root.mainloop()

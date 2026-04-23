@@ -1,0 +1,17 @@
+state = {
+    "playing": False,
+    "shuffle": False,
+    "loop": False,
+    "playlist": [],
+    "current_song": 0,
+    "history": [],
+    "is_stream": False,
+    "current_url": None,
+    "lyrics_frame_active": None,
+    "dragging": False,
+    "ended_handled": False,
+    "shuffle_queue": [],
+    "shuffle_index": 0,
+    "last_volume": 30,
+    "seeking": False,
+}
