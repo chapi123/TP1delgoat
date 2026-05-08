@@ -61,11 +61,12 @@ gui.hotkey('alt', 'f4')
 if password2: 
     time.sleep(1)
     kb.press_and_release('ctrl+t')
+    time.sleep(2)
     kb.write('spotify.com', delay=0.1)
     enter()
     time.sleep(6)
     gui.click(1277, 155)
-    time.sleep(4)schaparro@alumn
+    time.sleep(4)
     kb.press_and_release('tab')
     kb.write('santiago09.chaparro@gmail.com', delay=0.1)
     enter()
