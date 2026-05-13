@@ -10,10 +10,13 @@ root = tk.Tk()
 root.withdraw()
 
 password = simpledialog.askstring("Contraseña", "Ingresá la contraseña:")
+cisco_input = simpledialog.askstring("Cisco", "Ingresa cualquier cosa para entrar:")
 password2 = simpledialog.askstring("Contraseña", "Ingresá la contraseña:", show='*')
 
 if password2 == "":
     password2 = None
+
+cisco = cisco_input != ""
 
 def enter() :
     kb.press_and_release('enter')
@@ -43,19 +46,36 @@ for i in range(12) :
     time.sleep(0.3)
     kb.press_and_release('tab')
 
-enter()
+enter() 
 time.sleep(2)
 
 for i in range(4) :
     time.sleep(0.3)
-    kb.press_and_release('tab')
+    kb.press_and_release('tab')                             
 
 enter()
-time.sleep(1)
+time.sleep(1)       
+
 
 gui.hotkey('alt', 'tab')
 time.sleep(1)
 gui.hotkey('alt', 'f4') 
+
+if cisco :
+    time.sleep (0.5)
+    gui.hotkey('ctrl', 'tab')
+    time.sleep(0.5)
+    gui.click(190, 314)
+    time.sleep(2)
+    gui.click(786, 307)
+    time.sleep(2)
+    gui.click(635, 636)
+    time.sleep(4)
+    gui.click(186, 533)
+    time.sleep(4)
+    gui.click(961, 651)
+    time.sleep(4)
+    gui.click(211, 586)
 
 
 if password2: 
